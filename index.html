@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8"><title>물차배차 관리자</title>
+<style>
+  body{font-family:'맑은 고딕','Malgun Gothic',sans-serif;background:#f3f4f6;margin:0;padding:24px;color:#111}
+  h1{font-size:18px;color:#1a3a6b;margin:0 0 4px}
+  .sub{font-size:12px;color:#6b7280;margin-bottom:16px}
+  table{width:100%;border-collapse:collapse;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1)}
+  th,td{padding:8px 10px;border-bottom:1px solid #e5e7eb;font-size:13px;text-align:left;vertical-align:top}
+  th{background:#eef2f7;color:#374151;font-weight:600}
+  .badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+  .badge-wait{background:#fef9c3;color:#92400e}
+  .badge-done{background:#dcfce7;color:#166534}
+  textarea{width:100%;min-height:44px;padding:4px 6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;box-sizing:border-box}
+  button{padding:6px 12px;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600}
+  .btn-primary{background:#2563eb;color:#fff}
+  .btn-gray{background:#6b7280;color:#fff}
+  #tokenBar{display:flex;gap:8px;align-items:center;margin-bottom:14px;font-size:12px}
+  #status{font-size:12px;color:#6b7280;margin-top:10px}
+</style></head>
+<body>
+  <h1>💧 물차배차 관리자</h1>
+  <div class="sub">저장소: ddddd6002-design/pub — 배차 확정 시 이 저장소에 결과가 저장됩니다.</div>
+  <div id="tokenBar">
+    <span id="tokenStat">🔒 GitHub 토큰 미설정</span>
+    <button class="btn-gray" onclick="setToken()">⚙ 토큰 설정</button>
+    <button class="btn-primary" onclick="loadRows()">🔄 새로고침</button>
+  </div>
+  <table>
+    <thead><tr><th>충수지점</th><th>급수지점</th><th>물차크기</th><th>투입대수</th><th>상태</th><th>배차</th></tr></thead>
+    <tbody id="rowsBody"><tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:20px">불러오는 중...</td></tr></tbody>
+  </table>
+  <div id="status"></div>
+<script>
+var REPO="ddddd6002-design/pub";
+var DATA_FILE="dispatch.json";
+var ROWS=[];
+function getToken(){ return localStorage.getItem('gh_dispatch_token')||''; }
+function setToken(){
+  var cur=getToken();
+  var t=prompt('GitHub Personal Access Token을 입력하세요.\n(이 저장소에만 쓰기 권한이 있는 토큰을 권장합니다. 이 브라우저에만 저장되며 다른 곳으로 전송되지 않습니다.)', cur);
+  if(t===null) return;
+  localStorage.setItem('gh_dispatch_token', t.trim());
+  updateTokenStat();
+}
+function updateTokenStat(){
+  document.getElementById('tokenStat').textContent = getToken() ? '🔓 GitHub 토큰 설정됨' : '🔒 GitHub 토큰 미설정';
+}
+function escHtml(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+function loadRows(){
+  document.getElementById('status').textContent='불러오는 중...';
+  fetch('./'+DATA_FILE+'?t='+Date.now()).then(function(res){ return res.ok?res.json():[]; }).catch(function(){ return []; }).then(function(data){
+    ROWS=data||[];
+    renderRows();
+    document.getElementById('status').textContent='';
+  });
+}
+function renderRows(){
+  var body=document.getElementById('rowsBody');
+  if(!ROWS.length){ body.innerHTML='<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:20px">배차 요청이 없습니다.</td></tr>'; return; }
+  body.innerHTML = ROWS.map(function(r,i){
+    if(r.배차완료){
+      return '<tr><td>'+escHtml(r.충수지점)+'</td><td>'+escHtml(r.급수지점)+'</td><td>'+escHtml(r.물차크기)+'</td><td>'+escHtml(r.투입대수)+'</td>'
+        +'<td><span class="badge badge-done">배차완료</span></td>'
+        +'<td style="font-size:11px;color:#374151">'+escHtml((r.배차차량||[]).join(', '))+'<br><span style="color:#9ca3af">'+escHtml(r.배차시각||'')+'</span></td></tr>';
+    }
+    return '<tr><td>'+escHtml(r.충수지점)+'</td><td>'+escHtml(r.급수지점)+'</td><td>'+escHtml(r.물차크기)+'</td><td>'+escHtml(r.투입대수)+'</td>'
+      +'<td><span class="badge badge-wait">대기중</span></td>'
+      +'<td><textarea id="veh_'+i+'" placeholder="차량번호를 쉼표로 구분해 입력 (예: 05가1234, 05나5678)"></textarea>'
+      +'<button class="btn-primary" style="margin-top:4px" onclick="confirmDispatch('+i+')">배차확정</button></td></tr>';
+  }).join('');
+}
+function confirmDispatch(idx){
+  var token=getToken();
+  if(!token){ alert('먼저 GitHub 토큰을 설정해주세요.'); setToken(); return; }
+  var ta=document.getElementById('veh_'+idx);
+  var vehicles=(ta.value||'').split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+  if(!vehicles.length){ alert('배차할 차량을 한 대 이상 입력해주세요.'); return; }
+  var row=ROWS[idx];
+  row.배차완료=true; row.배차차량=vehicles; row.배차시각=new Date().toLocaleString('ko-KR');
+  document.getElementById('status').textContent='저장 중...';
+  var url='https://api.github.com/repos/'+REPO+'/contents/'+DATA_FILE;
+  var headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json'};
+  fetch(url,{headers:headers}).then(function(getRes){
+    return getRes.ok ? getRes.json().then(function(j){ return j.sha; }) : undefined;
+  }).then(function(sha){
+    var content=btoa(unescape(encodeURIComponent(JSON.stringify(ROWS,null,2))));
+    var body={message:'배차확정: '+row.id, content:content};
+    if(sha) body.sha=sha;
+    return fetch(url,{method:'PUT',headers:Object.assign({},headers,{'Content-Type':'application/json'}),body:JSON.stringify(body)});
+  }).then(function(putRes){
+    if(!putRes.ok) return putRes.text().then(function(t){ throw new Error('HTTP '+putRes.status+': '+t); });
+    document.getElementById('status').textContent='✅ 배차가 확정되었습니다.';
+    renderRows();
+  }).catch(function(e){
+    row.배차완료=false;
+    document.getElementById('status').textContent='❌ 저장 실패: '+e.message;
+    alert('저장 실패: '+e.message+'\n(토큰에 이 저장소 쓰기 권한이 있는지 확인해주세요)');
+  });
+}
+updateTokenStat();
+loadRows();
+</script>
+</body></html>
