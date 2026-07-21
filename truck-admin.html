@@ -251,8 +251,8 @@ async function getKakaoAccessToken(){
 // 상단에 배너로 넣는다(카카오 메시지의 title 글자 크기는 고정이라 이 방법으로만 크게 보일 수 있다).
 // 카카오톡은 image_url을 최초 1회 받아온 뒤 그 주소로 계속 캐시해서 재사용하므로, 배너
 // 이미지를 바꿀 때마다 ?v= 뒤의 버전을 올려서 새 주소로 인식시켜야 갱신된 이미지가 보인다.
-const DISPATCH_BANNER_URL='https://rawcdn.githack.com/ddddd6002-design/pub/main/assets/dispatch-banner.png?v=3';
-const DISPATCH_BANNER_W=337, DISPATCH_BANNER_H=300;
+const DISPATCH_BANNER_URL='https://rawcdn.githack.com/ddddd6002-design/pub/main/assets/dispatch-banner.png?v=4';
+const DISPATCH_BANNER_W=593, DISPATCH_BANNER_H=210;
 async function sendKakaoMessage(description, vehicle){
   const token=await getKakaoAccessToken();
   if(!token){
@@ -263,7 +263,7 @@ async function sendKakaoMessage(description, vehicle){
   const template={
     object_type:'feed',
     content:{
-      title:'물차 배차 안내',
+      title:'',
       description,
       image_url: DISPATCH_BANNER_URL,
       image_width: DISPATCH_BANNER_W,
