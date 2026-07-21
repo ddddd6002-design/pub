@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>물차지원 배차관리</title>
+<style>
+  body{font-family:'맑은 고딕','Malgun Gothic',sans-serif;background:#f3f4f6;margin:0;padding:20px;color:#111}
+  h1{font-size:18px;color:#1a3a6b;margin:0}
+  .topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px}
+  .modeSwitch{display:flex;gap:4px;background:#e5e7eb;border-radius:6px;padding:3px}
+  .modeSwitch button{padding:6px 12px;border:none;border-radius:5px;cursor:pointer;font-size:12px;font-weight:600;background:transparent;color:#374151}
+  .modeSwitch button.active{background:#1a3a6b;color:#fff}
+  table{width:100%;border-collapse:collapse;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1)}
+  th,td{padding:8px 10px;border-bottom:1px solid #e5e7eb;font-size:13px;text-align:left;vertical-align:middle}
+  th{background:#eef2f7;color:#374151;font-weight:600}
+  th.sortable{cursor:pointer;user-select:none}
+  th.sortable:after{content:' ⇕';color:#9ca3af;font-size:10px}
+  input[type=text],input[type=number],select{width:100%;padding:5px 6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;box-sizing:border-box}
+  button{padding:6px 12px;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .btn-primary{background:#2563eb;color:#fff}
+  .btn-green{background:#0f766e;color:#fff}
+  .btn-gray{background:#6b7280;color:#fff}
+  .btn-red{background:#dc2626;color:#fff}
+  .btn-orange{background:#b45309;color:#fff}
+  .actionBar{display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px}
+  #status{font-size:12px;color:#6b7280;margin-top:10px;white-space:pre-wrap}
+  .badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+  .badge-wait{background:#f3f4f6;color:#6b7280}
+  .badge-assigned{background:#dbeafe;color:#1e40af}
+  .badge-progress{background:#fef9c3;color:#92400e}
+  .badge-done{background:#dcfce7;color:#166534}
+  /* 모달 */
+  .modalOverlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);align-items:center;justify-content:center;z-index:50}
+  .modalOverlay.active{display:flex}
+  .modalBox{background:#fff;border-radius:8px;padding:20px;max-width:640px;width:92%;max-height:85vh;overflow-y:auto;box-shadow:0 10px 30px rgba(0,0,0,.2)}
+  .modalBox h2{font-size:15px;color:#1a3a6b;margin:0 0 14px}
+  .modalActions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
+  .settingsSection{margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid #e5e7eb}
+  .settingsSection:last-child{border-bottom:none}
+  .settingsSection h3{font-size:13px;color:#374151;margin:0 0 8px}
+  .vehRow{display:grid;grid-template-columns:110px 1fr 1fr 70px;gap:6px;margin-bottom:6px;align-items:center}
+  .vehRow.head{font-size:11px;color:#6b7280;font-weight:600}
+  .hint{font-size:11px;color:#9ca3af;margin-top:6px}
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <h1>💧 물차지원 배차관리</h1>
+    <div style="display:flex;gap:8px;align-items:center">
+      <div class="modeSwitch" id="modeSwitch">
+        <button data-mode="admin">관리자</button>
+        <button data-mode="viewer">일반사용자</button>
+        <button data-mode="driver">물차기사</button>
+      </div>
+      <button class="btn-gray" id="settingsBtn" onclick="openSettings()">⚙ 설정</button>
+    </div>
+  </div>
+
+  <div class="actionBar">
+    <button class="btn-primary" onclick="refreshDispatch()">🔄 배차현황 업데이트</button>
+  </div>
+  <table>
+    <thead><tr>
+      <th>충수지점</th><th>급수지점</th><th>물차크기</th><th>배차현황</th><th>배차시작시간</th><th>배차종료시간</th><th>급수현황</th><th id="actionColHead" style="width:280px"></th>
+    </tr></thead>
+    <tbody id="rowsBody"><tr><td colspan="8" style="text-align:center;color:#9ca3af;padding:24px">"배차현황 업데이트"를 눌러 불러오세요.</td></tr></tbody>
+  </table>
+  <div id="status"></div>
+
+  <!-- 설정 모달 -->
+  <div class="modalOverlay" id="settingsModal">
+    <div class="modalBox">
+      <h2>설정</h2>
+      <div class="settingsSection">
+        <h3>GitHub 토큰</h3>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span id="tokenStat">🔒 미설정</span>
+          <button class="btn-gray" onclick="setToken()">토큰 설정</button>
+        </div>
+      </div>
+      <div class="settingsSection">
+        <h3>카카오톡 연동 (나에게 보내기)</h3>
+        <label style="display:block;font-size:11px;color:#6b7280;margin-bottom:4px">카카오 REST API 키</label>
+        <div style="display:flex;gap:6px;margin-bottom:8px">
+          <input type="text" id="kakaoRestKeyInput" placeholder="카카오 디벨로퍼스에서 발급받은 REST API 키">
+          <button class="btn-gray" onclick="saveKakaoRestKey()">저장</button>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span id="kakaoStat">🔒 연동 안됨</span>
+          <button class="btn-orange" onclick="startKakaoLogin()">카카오 연동(로그인)</button>
+        </div>
+        <div class="hint">카카오 디벨로퍼스 앱의 Redirect URI에 이 페이지 주소(<span id="kakaoRedirectHint"></span>)를 정확히 등록하고, 동의항목에서 "카카오톡 메시지 전송(talk_message)"을 신청해야 합니다. 로그인한 카카오 계정("나에게 보내기")으로만 전송됩니다.</div>
+      </div>
+      <div class="settingsSection">
+        <h3>차량목록</h3>
+        <div class="vehRow head"><div>물차크기</div><div>차량번호</div><div>차고지</div><div></div></div>
+        <div id="vehListBody"></div>
+        <button class="btn-gray" onclick="addVehicleRow()" style="margin-top:6px">+ 차량 추가</button>
+        <div class="hint">충수지점까지 거리는 여기서 입력하지 않고, 배차 시점에 차고지 → 해당 요청의 충수지점 경로로 자동 계산됩니다.</div>
+      </div>
+      <div class="modalActions">
+        <button class="btn-green" onclick="saveVehicles()">저장</button>
+        <button class="btn-gray" onclick="closeSettings()">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 배차(차량 선택) 모달 -->
+  <div class="modalOverlay" id="dispatchModal">
+    <div class="modalBox">
+      <h2>차량 배차 <span id="dispatchTargetLabel" style="font-size:12px;color:#6b7280;font-weight:400"></span></h2>
+      <table>
+        <thead><tr>
+          <th class="sortable" onclick="sortVehiclePicker('물차크기')">용량</th>
+          <th>차량번호</th>
+          <th>차고지</th>
+          <th class="sortable" onclick="sortVehiclePicker('거리km')">충수지점까지 거리</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="vehPickerBody"><tr><td colspan="5" style="text-align:center;color:#9ca3af;padding:20px">불러오는 중...</td></tr></tbody>
+      </table>
+      <div class="modalActions">
+        <button class="btn-gray" onclick="closeDispatchModal()">취소</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 배차종료 Modal -->
+  <div class="modalOverlay" id="endDispatchModal">
+    <div class="modalBox" style="max-width:380px">
+      <h2>배차종료 <span id="endDispatchTargetLabel" style="font-size:12px;color:#6b7280;font-weight:400"></span></h2>
+      <label style="display:block;font-size:12px;color:#374151;margin-bottom:6px">배차종료시간 (기본값: 마지막 급수완료 시각)</label>
+      <input type="datetime-local" id="endDispatchTime" style="width:100%;padding:6px 8px;border:1px solid #d1d5db;border-radius:4px;font-size:13px;box-sizing:border-box">
+      <div class="modalActions">
+        <button class="btn-gray" onclick="closeEndDispatchModal()">취소</button>
+        <button class="btn-green" onclick="confirmEndDispatch()">배차종료 확정</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+const REPO='ddddd6002-design/pub';
+const DATA_FILE='dispatch.json';
+const VEHICLE_FILE='vehicles.json';
+const VWORLD_KEY='815FA969-5D86-3CB8-840C-6C7D4CCD7899';
+const TRUCK_SIZES=['5ton','8ton','10ton','15ton'];
+const TRUCK_SIZE_M3={'5ton':5,'8ton':8,'10ton':10,'15ton':15};
+
+let MODE=localStorage.getItem('wt_mode')||'admin';
+let DISPATCH_ROWS=[];
+let VEHICLES=[];
+let _dispatchTarget=null; // {reqId, slotIdx}
+let _pickerRows=[];
+let _pickerSort={key:null, dir:1};
+let _geocodeCache={};
+
+// ── 공통 유틸 ──
+function escHtml(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function setStatus(msg, color){ const el=document.getElementById('status'); el.textContent=msg; el.style.color=color||'#6b7280'; }
+function getToken(){ return localStorage.getItem('gh_dispatch_token')||''; }
+function setToken(){
+  const cur=getToken();
+  const t=prompt('GitHub Personal Access Token을 입력하세요.\n(이 저장소(ddddd6002-design/pub)에 Contents 읽기/쓰기 권한이 있는 토큰이어야 합니다. 이 브라우저에만 저장되며 다른 곳으로 전송되지 않습니다.)', cur);
+  if(t===null) return;
+  localStorage.setItem('gh_dispatch_token', t.trim());
+  updateTokenStat();
+}
+function updateTokenStat(){
+  const el=document.getElementById('tokenStat');
+  if(el) el.textContent = getToken() ? '🔓 설정됨' : '🔒 미설정';
+}
+
+// ── 카카오톡 "나에게 보내기" 연동 ──
+// 이 페이지 자신의 주소를 Redirect URI로 쓴다 — 카카오 로그인 후 ?code=...로 돌아오면
+// 그 code를 access_token으로 교환한다. 배차 시 자동으로, 또는 "메세지 전송" 버튼으로
+// 물차기사 페이지 링크를 카카오톡으로(로그인한 계정 자신에게) 보낸다.
+const KAKAO_REDIRECT_URI = location.origin + location.pathname;
+const DRIVER_PAGE_URL = location.origin + location.pathname.replace(/[^/]*$/, '물차기사.html');
+function getKakaoRestKey(){ return localStorage.getItem('kakao_rest_key')||''; }
+function saveKakaoRestKey(){
+  const v=(document.getElementById('kakaoRestKeyInput').value||'').trim();
+  if(!v){ alert('REST API 키를 입력하세요.'); return; }
+  localStorage.setItem('kakao_rest_key', v);
+  alert('저장되었습니다. 이제 "카카오 연동(로그인)"을 눌러주세요.');
+  updateKakaoStat();
+}
+function updateKakaoStat(){
+  const hintEl=document.getElementById('kakaoRedirectHint');
+  if(hintEl) hintEl.textContent=KAKAO_REDIRECT_URI;
+  const keyEl=document.getElementById('kakaoRestKeyInput');
+  if(keyEl) keyEl.value=getKakaoRestKey();
+  const statEl=document.getElementById('kakaoStat');
+  if(statEl) statEl.textContent = localStorage.getItem('kakao_refresh_token') ? '🔓 연동됨' : '🔒 연동 안됨';
+}
+function startKakaoLogin(){
+  const restKey=getKakaoRestKey();
+  if(!restKey){ alert('먼저 카카오 REST API 키를 저장해주세요.'); return; }
+  const url=`https://kauth.kakao.com/oauth/authorize?client_id=${encodeURIComponent(restKey)}&redirect_uri=${encodeURIComponent(KAKAO_REDIRECT_URI)}&response_type=code&scope=talk_message`;
+  location.href=url;
+}
+// 페이지가 카카오 로그인 후 ?code=...로 돌아왔을 때 access_token/refresh_token으로 교환.
+async function handleKakaoCallback(){
+  const params=new URLSearchParams(location.search);
+  const code=params.get('code');
+  if(!code) return;
+  const restKey=getKakaoRestKey();
+  history.replaceState({}, '', KAKAO_REDIRECT_URI); // code 파라미터 정리
+  if(!restKey) return;
+  try{
+    const body=new URLSearchParams({grant_type:'authorization_code', client_id:restKey, redirect_uri:KAKAO_REDIRECT_URI, code});
+    const res=await fetch('https://kauth.kakao.com/oauth/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
+    const json=await res.json();
+    if(json.access_token){
+      localStorage.setItem('kakao_access_token', json.access_token);
+      localStorage.setItem('kakao_token_expires_at', String(Date.now()+(json.expires_in||21599)*1000));
+      if(json.refresh_token) localStorage.setItem('kakao_refresh_token', json.refresh_token);
+      setStatus('✅ 카카오톡 연동이 완료되었습니다.', '#16a34a');
+    } else {
+      setStatus('❌ 카카오톡 연동 실패: '+(json.error_description||JSON.stringify(json)), '#dc2626');
+    }
+  }catch(e){
+    setStatus('❌ 카카오톡 연동 오류: '+e.message, '#dc2626');
+  }
+  updateKakaoStat();
+}
+// access_token이 없거나 곧 만료되면 refresh_token으로 재발급받는다.
+async function getKakaoAccessToken(){
+  const restKey=getKakaoRestKey();
+  if(!restKey) return null;
+  const exp=+localStorage.getItem('kakao_token_expires_at')||0;
+  const token=localStorage.getItem('kakao_access_token');
+  if(token && Date.now() < exp-60000) return token;
+  const refresh=localStorage.getItem('kakao_refresh_token');
+  if(!refresh) return null;
+  try{
+    const body=new URLSearchParams({grant_type:'refresh_token', client_id:restKey, refresh_token:refresh});
+    const res=await fetch('https://kauth.kakao.com/oauth/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
+    const json=await res.json();
+    if(json.access_token){
+      localStorage.setItem('kakao_access_token', json.access_token);
+      localStorage.setItem('kakao_token_expires_at', String(Date.now()+(json.expires_in||21599)*1000));
+      if(json.refresh_token) localStorage.setItem('kakao_refresh_token', json.refresh_token);
+      return json.access_token;
+    }
+  }catch(e){}
+  return null;
+}
+// text 안의 링크를 눌러 물차기사 페이지(?vehicle=차량번호로 자동 로그인)를 열 수 있게 만든다.
+async function sendKakaoMessage(text, vehicle){
+  const token=await getKakaoAccessToken();
+  if(!token){
+    setStatus('⚠ 카카오톡이 연동되어 있지 않아 메시지를 보내지 못했습니다. (설정에서 연동해주세요)', '#b45309');
+    return false;
+  }
+  const url = vehicle ? `${DRIVER_PAGE_URL}?vehicle=${encodeURIComponent(vehicle)}` : DRIVER_PAGE_URL;
+  const template={ object_type:'text', text, link:{web_url:url, mobile_web_url:url}, button_title:'물차기사 페이지 열기' };
+  try{
+    const body=new URLSearchParams({template_object:JSON.stringify(template)});
+    const res=await fetch('https://kapi.kakao.com/v2/api/talk/memo/default/send',{method:'POST',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/x-www-form-urlencoded'},body});
+    const json=await res.json();
+    if(json.result_code===0){ setStatus('✅ 카카오톡 메시지를 전송했습니다.', '#16a34a'); return true; }
+    setStatus('❌ 카카오톡 전송 실패: '+(json.msg||JSON.stringify(json)), '#dc2626');
+    return false;
+  }catch(e){
+    setStatus('❌ 카카오톡 전송 오류: '+e.message, '#dc2626');
+    return false;
+  }
+}
+function _dispatchMsgText(row, slot){
+  return `🚚 물차 배차 안내\n${row.충수지점}${row.충수절점명?` (${row.충수절점명})`:''} → ${row.급수지점}${row.급수절점명?` (${row.급수절점명})`:''}\n차량: ${slot.차량번호} (${slot.물차크기})\n아래 링크를 눌러 배차 화면을 열어주세요.`;
+}
+// "메세지 전송" 버튼 — 이미 배차된 슬롯에 대해 카카오톡 메시지를 다시(또는 처음) 보낸다.
+async function resendDispatchMessage(reqId, slotIdx){
+  const row=DISPATCH_ROWS.find(r=>r.id===reqId);
+  if(!row) return;
+  const slot=row.slots[slotIdx];
+  if(!slot||!slot.차량번호) return;
+  setStatus('⏳ 카카오톡 메시지 전송 중...', '#2563eb');
+  await sendKakaoMessage(_dispatchMsgText(row, slot), slot.차량번호);
+}
+function b64ToUtf8(b64){
+  const bin=atob(b64.replace(/\n/g,''));
+  const bytes=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+  return new TextDecoder('utf-8').decode(bytes);
+}
+function utf8ToB64(str){
+  const bytes=new TextEncoder().encode(str);
+  let bin='';
+  bytes.forEach(b=>bin+=String.fromCharCode(b));
+  return btoa(bin);
+}
+
+// ── GitHub 파일 읽기/쓰기 (충돌 시 재시도) ──
+async function getFileWithSha(filePath){
+  const token=getToken();
+  const headers={'Accept':'application/vnd.github+json'};
+  if(token) headers['Authorization']='Bearer '+token;
+  const url=`https://api.github.com/repos/${REPO}/contents/${filePath}`;
+  const res=await fetch(url,{cache:'no-store',headers});
+  if(res.status===404) return {data:null, sha:null};
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  const j=await res.json();
+  return {data: j.content?b64ToUtf8(j.content):null, sha: j.sha};
+}
+// mutatorFn(현재배열) → 새 배열. sha 충돌(409/422) 시 최신값을 다시 읽어 재시도한다 —
+// 관리자 화면과 물차기사 화면이 동시에 같은 파일에 쓸 수 있어 충돌 대비가 필요하다.
+async function updateJsonFileWithRetry(filePath, mutatorFn, commitMsg){
+  const token=getToken();
+  if(!token) throw new Error('GitHub 토큰이 설정되어 있지 않습니다.');
+  for(let attempt=0; attempt<5; attempt++){
+    const {data:text, sha}=await getFileWithSha(filePath);
+    const current=text?JSON.parse(text):[];
+    const updated=mutatorFn(current);
+    const url=`https://api.github.com/repos/${REPO}/contents/${filePath}`;
+    const headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','Content-Type':'application/json'};
+    const body={message: commitMsg||('update '+filePath), content: utf8ToB64(JSON.stringify(updated,null,2))};
+    if(sha) body.sha=sha;
+    const putRes=await fetch(url,{method:'PUT',headers,body:JSON.stringify(body)});
+    if(putRes.ok) return updated;
+    if(putRes.status===409 || putRes.status===422){
+      await new Promise(r=>setTimeout(r, 300+attempt*300));
+      continue;
+    }
+    const t=await putRes.text();
+    throw new Error(`HTTP ${putRes.status}: ${t}`);
+  }
+  throw new Error('저장 충돌이 반복되어 실패했습니다. 잠시 후 다시 시도해주세요.');
+}
+
+// ── 배차요청(dispatch.json) — 투입대수만큼의 slots로 마이그레이션 ──
+function ensureSlots(row){
+  if(!Array.isArray(row.slots)) row.slots=[];
+  while(row.slots.length < (row.투입대수||0)){
+    row.slots.push({차량번호:null, 차고지:null, 물차크기:null, 거리km:null, 배차시각:null, 배차종료시각:null, 단계:'대기', 급수완료횟수:0, 급수기록:[]});
+  }
+  row.slots.forEach(s=>{ if(!Array.isArray(s.급수기록)) s.급수기록=[]; if(s.배차종료시각===undefined) s.배차종료시각=null; });
+  return row;
+}
+// 공통 시간 표시형식: 'YY.MM.DD HH:mm (24시간제)
+function fmtDateTime(ms){
+  if(ms==null) return '-';
+  let d=new Date(ms);
+  if(isNaN(d.getTime())) return String(ms);
+  const p=n=>String(n).padStart(2,'0');
+  const yy=String(d.getFullYear()).slice(2);
+  return `'${yy}.${p(d.getMonth()+1)}.${p(d.getDate())}. ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function toDatetimeLocalValue(ms){
+  if(ms==null) return '';
+  const d=new Date(ms), p=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function slotBadge(slot){
+  if(!slot.차량번호) return `<span class="badge badge-wait">미배차</span>`;
+  const stageLabel = slot.단계==='대기' ? (slot.급수완료횟수>0?'배차완료 (대기 중)':'배차완료') : slot.단계;
+  const cls = slot.단계==='대기' ? 'badge-assigned' : 'badge-progress';
+  return `<span class="badge ${cls}">${escHtml(slot.차량번호)}${slot.거리km!=null?` (${slot.거리km.toFixed(1)}km)`:''} · ${escHtml(stageLabel)}</span>`;
+}
+// 주소 뒤에 절점명(배수지명)이 있으면 괄호로 붙여서 어떤 배수지인지 바로 알아볼 수 있게 한다.
+function addrWithNode(addr, nodeName){
+  return nodeName ? `${escHtml(addr)} (${escHtml(nodeName)})` : escHtml(addr);
+}
+
+async function refreshDispatch(){
+  setStatus('⏳ 배차현황을 불러오는 중...', '#2563eb');
+  try{
+    const {data:text}=await getFileWithSha(DATA_FILE);
+    const rows=text?JSON.parse(text):[];
+    rows.forEach(ensureSlots);
+    DISPATCH_ROWS=rows;
+    renderRows();
+    setStatus(rows.length?`✅ ${rows.length}건의 요청을 불러왔습니다.`:'현재 등록된 배차 요청이 없습니다.', rows.length?'#16a34a':'#6b7280');
+  }catch(e){
+    setStatus('❌ 불러오기 실패: '+e.message, '#dc2626');
+  }
+}
+
+function renderRows(){
+  const isAdmin = MODE==='admin';
+  document.getElementById('actionColHead').textContent = isAdmin ? '배차 / 종료 / 초기화 / 메세지전송' : '';
+  const body=document.getElementById('rowsBody');
+  const flat=[];
+  DISPATCH_ROWS.forEach(row=>{
+    (row.slots||[]).forEach((slot,idx)=>flat.push({row, slot, idx}));
+  });
+  if(!flat.length){ body.innerHTML='<tr><td colspan="8" style="text-align:center;color:#9ca3af;padding:24px">표시할 배차 요청이 없습니다.</td></tr>'; return; }
+  body.innerHTML=flat.map(({row,slot,idx})=>{
+    const supplyTxt = `급수완료 ${slot.급수완료횟수||0}회`;
+    const actionsHtml = isAdmin
+      ? `<button class="btn-orange" onclick="openDispatchModal('${row.id}',${idx})">배차</button>
+         <button class="btn-green" ${slot.차량번호&&!slot.배차종료시각?'':'disabled'} onclick="openEndDispatchModal('${row.id}',${idx})">배차종료</button>
+         <button class="btn-gray" ${slot.차량번호?'':'disabled'} onclick="resetSlot('${row.id}',${idx})">초기화</button>
+         <button class="btn-primary" ${slot.차량번호?'':'disabled'} onclick="resendDispatchMessage('${row.id}',${idx})">메세지 전송</button>`
+      : '';
+    return `<tr>
+      <td>${addrWithNode(row.충수지점, row.충수절점명)}</td>
+      <td>${addrWithNode(row.급수지점, row.급수절점명)}</td>
+      <td>${escHtml(slot.물차크기||'-')}</td>
+      <td>${slotBadge(slot)}</td>
+      <td>${slot.배차시각!=null?fmtDateTime(slot.배차시각):'-'}</td>
+      <td>${slot.배차종료시각?fmtDateTime(slot.배차종료시각):'-'}</td>
+      <td>${supplyTxt}</td>
+      <td style="white-space:nowrap">${actionsHtml}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function resetSlot(reqId, slotIdx){
+  if(!confirm('이 배차 슬롯을 초기화하시겠습니까?\n배차된 차량 정보와 급수현황이 모두 지워집니다.')) return;
+  setStatus('⏳ 초기화 중...', '#2563eb');
+  try{
+    await updateJsonFileWithRetry(DATA_FILE, (rows)=>{
+      rows.forEach(ensureSlots);
+      const r=rows.find(x=>x.id===reqId);
+      if(r && r.slots[slotIdx]) r.slots[slotIdx]={차량번호:null,차고지:null,거리km:null,배차시각:null,배차종료시각:null,단계:'대기',급수완료횟수:0,급수기록:[]};
+      return rows;
+    }, '슬롯 초기화: '+reqId);
+    setStatus('✅ 초기화 완료', '#16a34a');
+    await refreshDispatch();
+  }catch(e){
+    setStatus('❌ 초기화 실패: '+e.message, '#dc2626');
+  }
+}
+
+// ── 배차종료 모달 — 기본값은 마지막 급수완료(급수기록) 시각, 직접 수정도 가능 ──
+let _endDispatchTarget=null; // {reqId, slotIdx}
+function openEndDispatchModal(reqId, slotIdx){
+  const row=DISPATCH_ROWS.find(r=>r.id===reqId);
+  if(!row) return;
+  const slot=row.slots[slotIdx];
+  if(!slot) return;
+  _endDispatchTarget={reqId, slotIdx};
+  document.getElementById('endDispatchTargetLabel').textContent = `— ${escHtml(slot.차량번호||'')}`;
+  const rounds=slot.급수기록||[];
+  const defaultMs = rounds.length ? rounds[rounds.length-1] : Date.now();
+  document.getElementById('endDispatchTime').value = toDatetimeLocalValue(defaultMs);
+  document.getElementById('endDispatchModal').classList.add('active');
+}
+function closeEndDispatchModal(){
+  document.getElementById('endDispatchModal').classList.remove('active');
+  _endDispatchTarget=null;
+}
+async function confirmEndDispatch(){
+  if(!_endDispatchTarget) return;
+  const {reqId, slotIdx}=_endDispatchTarget;
+  const val=document.getElementById('endDispatchTime').value;
+  const ms=val?new Date(val).getTime():Date.now();
+  setStatus('⏳ 배차종료 처리 중...', '#2563eb');
+  try{
+    await updateJsonFileWithRetry(DATA_FILE, (rows)=>{
+      rows.forEach(ensureSlots);
+      const r=rows.find(x=>x.id===reqId);
+      if(r && r.slots[slotIdx]) r.slots[slotIdx].배차종료시각=ms;
+      return rows;
+    }, '배차종료: '+reqId);
+    closeEndDispatchModal();
+    setStatus('✅ 배차종료 처리되었습니다.', '#16a34a');
+    await refreshDispatch();
+  }catch(e){
+    setStatus('❌ 배차종료 실패: '+e.message, '#dc2626');
+  }
+}
+
+// ── 배차(차량 선택) 모달 ──
+async function openDispatchModal(reqId, slotIdx){
+  const token=getToken();
+  if(!token){ alert('먼저 GitHub 토큰을 설정해주세요.'); setToken(); return; }
+  const row=DISPATCH_ROWS.find(r=>r.id===reqId);
+  if(!row) return;
+  _dispatchTarget={reqId, slotIdx};
+  const 충수표시=row.충수절점명?`${row.충수지점} (${row.충수절점명})`:row.충수지점;
+  const 급수표시=row.급수절점명?`${row.급수지점} (${row.급수절점명})`:row.급수지점;
+  document.getElementById('dispatchTargetLabel').textContent = `— ${충수표시} → ${급수표시}`;
+  document.getElementById('vehPickerBody').innerHTML='<tr><td colspan="5" style="text-align:center;color:#9ca3af;padding:20px">차량목록 및 거리 계산 중...</td></tr>';
+  document.getElementById('dispatchModal').classList.add('active');
+  try{
+    if(!VEHICLES.length){
+      const {data:text}=await getFileWithSha(VEHICLE_FILE);
+      VEHICLES=text?JSON.parse(text):[];
+    }
+    if(!VEHICLES.length){
+      document.getElementById('vehPickerBody').innerHTML='<tr><td colspan="5" style="text-align:center;color:#dc2626;padding:20px">등록된 차량이 없습니다. 설정에서 차량목록을 추가해주세요.</td></tr>';
+      return;
+    }
+    const targetPt=await geocodeAddress(row.충수지점);
+    _pickerRows=await Promise.all(VEHICLES.map(async v=>{
+      let distKm=null;
+      try{
+        const fromPt=await geocodeAddress(v.차고지);
+        if(fromPt && targetPt) distKm=await osrmDistanceKm(fromPt, targetPt);
+      }catch(e){}
+      return Object.assign({}, v, {거리km:distKm});
+    }));
+    _pickerSort={key:null, dir:1};
+    renderVehiclePicker();
+  }catch(e){
+    document.getElementById('vehPickerBody').innerHTML=`<tr><td colspan="5" style="text-align:center;color:#dc2626;padding:20px">차량목록 조회 실패: ${escHtml(e.message)}</td></tr>`;
+  }
+}
+function closeDispatchModal(){
+  document.getElementById('dispatchModal').classList.remove('active');
+  _dispatchTarget=null;
+}
+function sortVehiclePicker(key){
+  _pickerSort = (_pickerSort.key===key) ? {key, dir:-_pickerSort.dir} : {key, dir:1};
+  renderVehiclePicker();
+}
+function renderVehiclePicker(){
+  let rows=_pickerRows.slice();
+  const {key, dir}=_pickerSort;
+  if(key){
+    rows.sort((a,b)=>{
+      let av=a[key], bv=b[key];
+      if(key==='물차크기'){ av=parseInt(av,10)||0; bv=parseInt(bv,10)||0; }
+      if(av==null) av = dir>0?Infinity:-Infinity;
+      if(bv==null) bv = dir>0?Infinity:-Infinity;
+      return av>bv ? dir : (av<bv ? -dir : 0);
+    });
+  }
+  document.getElementById('vehPickerBody').innerHTML = rows.map(v=>`
+    <tr>
+      <td>${escHtml(v.물차크기)}</td>
+      <td>${escHtml(v.차량번호)}</td>
+      <td>${escHtml(v.차고지)}</td>
+      <td>${v.거리km!=null?v.거리km.toFixed(1)+'km':'계산 불가'}</td>
+      <td><button class="btn-primary" onclick="assignVehicle('${escHtml(v.차량번호).replace(/'/g,"\\'")}','${escHtml(v.차고지).replace(/'/g,"\\'")}','${escHtml(v.물차크기).replace(/'/g,"\\'")}',${v.거리km!=null?v.거리km:'null'})">선택</button></td>
+    </tr>`).join('');
+}
+async function assignVehicle(차량번호, 차고지, 물차크기, 거리km){
+  if(!_dispatchTarget) return;
+  const {reqId, slotIdx}=_dispatchTarget;
+  const row=DISPATCH_ROWS.find(r=>r.id===reqId);
+  // 이미 다른 요청/슬롯에 배차된 차량인지 확인 (같은 슬롯 재배차는 허용).
+  const alreadyAssignedElsewhere = DISPATCH_ROWS.some(r=>(r.slots||[]).some((s,i)=>
+    s.차량번호===차량번호 && !(r.id===reqId && i===slotIdx)
+  ));
+  if(alreadyAssignedElsewhere){
+    alert('이미 배차된 차량입니다.');
+    return;
+  }
+  // 이 배수지가 받을 수 있는 최대 크기(기준물차크기)보다 작은 차량을 배차하려는 경우 확인.
+  if(row && row.기준물차크기 && (TRUCK_SIZE_M3[물차크기]||0) < (TRUCK_SIZE_M3[row.기준물차크기]||0)){
+    if(!confirm('설정한 차량크기와 맞지 않습니다. 그대로 배차하시겠습니까?')) return;
+  }
+  setStatus('⏳ 배차 처리 중...', '#2563eb');
+  try{
+    await updateJsonFileWithRetry(DATA_FILE, (rows)=>{
+      rows.forEach(ensureSlots);
+      const r=rows.find(x=>x.id===reqId);
+      if(r && r.slots[slotIdx]){
+        r.slots[slotIdx]={차량번호, 차고지, 물차크기, 거리km: (거리km==null?null:거리km), 배차시각: Date.now(), 배차종료시각:null, 단계:'대기', 급수완료횟수: r.slots[slotIdx].급수완료횟수||0, 급수기록: r.slots[slotIdx].급수기록||[]};
+      }
+      return rows;
+    }, '배차: '+reqId+' → '+차량번호);
+    closeDispatchModal();
+    setStatus('✅ 배차 완료', '#16a34a');
+    await refreshDispatch();
+    // 배차가 확정되면 카카오톡으로 물차기사 페이지 링크를 자동 전송 (연동 안 돼 있으면 조용히 건너뜀)
+    if(row) await sendKakaoMessage(_dispatchMsgText(row, {차량번호, 물차크기}), 차량번호);
+  }catch(e){
+    setStatus('❌ 배차 실패: '+e.message, '#dc2626');
+  }
+}
+
+// ── 지오코딩(VWorld) + 경로거리(OSRM) ──
+async function geocodeAddress(addr){
+  if(!addr) return null;
+  if(_geocodeCache[addr]!==undefined) return _geocodeCache[addr];
+  for(const type of ['road','parcel']){
+    try{
+      const url=`https://api.vworld.kr/req/address?service=address&request=getcoord&version=2.0&crs=EPSG:4326&address=${encodeURIComponent(addr)}&refine=true&simple=false&format=json&type=${type}&key=${VWORLD_KEY}`;
+      const res=await fetch(url);
+      const json=await res.json();
+      if(json.response&&json.response.status==='OK'&&json.response.result){
+        const pt=json.response.result.point;
+        if(pt&&pt.x&&pt.y){ const r={lat:+pt.y,lng:+pt.x}; _geocodeCache[addr]=r; return r; }
+      }
+    }catch(e){}
+  }
+  _geocodeCache[addr]=null;
+  return null;
+}
+async function osrmDistanceKm(from, to){
+  try{
+    const url=`https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=false`;
+    const res=await fetch(url);
+    const json=await res.json();
+    if(json.routes&&json.routes[0]) return json.routes[0].distance/1000;
+  }catch(e){}
+  return null;
+}
+
+// ── 설정 모달 (토큰 + 차량목록) ──
+function openSettings(){
+  updateTokenStat();
+  updateKakaoStat();
+  renderVehicleSettingsRows();
+  document.getElementById('settingsModal').classList.add('active');
+}
+function closeSettings(){ document.getElementById('settingsModal').classList.remove('active'); }
+function renderVehicleSettingsRows(){
+  const body=document.getElementById('vehListBody');
+  body.innerHTML = VEHICLES.map((v,i)=>`
+    <div class="vehRow">
+      <select onchange="VEHICLES[${i}].물차크기=this.value">${TRUCK_SIZES.map(s=>`<option${s===v.물차크기?' selected':''}>${s}</option>`).join('')}</select>
+      <input type="text" value="${escHtml(v.차량번호)}" oninput="VEHICLES[${i}].차량번호=this.value">
+      <input type="text" value="${escHtml(v.차고지)}" oninput="VEHICLES[${i}].차고지=this.value">
+      <button class="btn-red" onclick="removeVehicleRow(${i})">삭제</button>
+    </div>`).join('');
+}
+function addVehicleRow(){
+  VEHICLES.push({물차크기:'8ton', 차량번호:'', 차고지:''});
+  renderVehicleSettingsRows();
+}
+function removeVehicleRow(i){
+  VEHICLES.splice(i,1);
+  renderVehicleSettingsRows();
+}
+async function saveVehicles(){
+  const token=getToken();
+  if(!token){ alert('먼저 GitHub 토큰을 설정해주세요.'); setToken(); return; }
+  const valid=VEHICLES.filter(v=>v.차량번호&&v.차량번호.trim()&&v.차고지&&v.차고지.trim());
+  try{
+    await updateJsonFileWithRetry(VEHICLE_FILE, ()=>valid, '차량목록 갱신');
+    VEHICLES=valid;
+    alert('차량목록이 저장되었습니다. ('+valid.length+'대)');
+    closeSettings();
+  }catch(e){
+    alert('저장 실패: '+e.message);
+  }
+}
+async function loadVehiclesForSettings(){
+  try{
+    const {data:text}=await getFileWithSha(VEHICLE_FILE);
+    VEHICLES=text?JSON.parse(text):[];
+  }catch(e){ VEHICLES=[]; }
+}
+
+// ── 모드 전환 ──
+function applyMode(){
+  if(MODE==='driver'){ location.href='물차기사.html'; return; }
+  document.querySelectorAll('#modeSwitch button').forEach(b=>b.classList.toggle('active', b.dataset.mode===MODE));
+  document.getElementById('settingsBtn').style.display = (MODE==='admin') ? '' : 'none';
+  renderRows();
+}
+document.getElementById('modeSwitch').addEventListener('click', e=>{
+  const btn=e.target.closest('button[data-mode]');
+  if(!btn) return;
+  const newMode=btn.dataset.mode;
+  if(newMode==='driver'){ location.href='물차기사.html'; return; }
+  MODE=newMode;
+  localStorage.setItem('wt_mode', MODE);
+  applyMode();
+});
+
+updateTokenStat();
+loadVehiclesForSettings();
+applyMode();
+handleKakaoCallback();
+</script>
+</body>
+</html>
