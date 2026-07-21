@@ -251,8 +251,10 @@ async function getKakaoAccessToken(){
 // 상단에 배너로 넣는다(카카오 메시지의 title 글자 크기는 고정이라 이 방법으로만 크게 보일 수 있다).
 // 카카오톡은 image_url을 최초 1회 받아온 뒤 그 주소로 계속 캐시해서 재사용하므로, 배너
 // 이미지를 바꿀 때마다 ?v= 뒤의 버전을 올려서 새 주소로 인식시켜야 갱신된 이미지가 보인다.
-const DISPATCH_BANNER_URL='https://rawcdn.githack.com/ddddd6002-design/pub/main/assets/dispatch-banner.png?v=4';
-const DISPATCH_BANNER_W=593, DISPATCH_BANNER_H=210;
+// 카카오톡은 image_url을 처음 받아온 뒤 쿼리스트링이 달라도 캐시를 재사용하는 경우가
+// 있어서, 배너를 바꿀 때는 쿼리스트링이 아니라 파일명 자체를 새로 만든다.
+const DISPATCH_BANNER_URL='https://rawcdn.githack.com/ddddd6002-design/pub/main/assets/dispatch-banner-v5.png';
+const DISPATCH_BANNER_W=573, DISPATCH_BANNER_H=300;
 async function sendKakaoMessage(description, vehicle){
   const token=await getKakaoAccessToken();
   if(!token){
@@ -285,7 +287,7 @@ async function sendKakaoMessage(description, vehicle){
   }
 }
 function _dispatchMsgText(row, slot){
-  return `배차차량 : ${slot.차량번호} (${slot.물차크기})\n충수지점 : ${row.충수지점}${row.충수절점명?` (${row.충수절점명})`:''}\n급수지점 : ${row.급수지점}${row.급수절점명?` (${row.급수절점명})`:''}\n\n아래 링크에서 공급현황을 차례대로 입력해주세요.\n입력된 정보는 비용정산 시 참고자료로 활용됩니다.`;
+  return `배차차량 : ${slot.차량번호} (${slot.물차크기})\n\n아래 페이지를 열어 급수현황을 입력해주세요.`;
 }
 // "메세지 전송" 버튼 — 이미 배차된 슬롯에 대해 카카오톡 메시지를 다시(또는 처음) 보낸다.
 async function resendDispatchMessage(reqId, slotIdx){
