@@ -286,7 +286,23 @@ async function buildDispatchBanner(vehicleText){
   const img=await loadKwaterLogo();
   const W=573, logoH=80, titleFontSize=52, vehFontSize=34, subFontSize=20;
   const TITLE='물차배차안내', SUB='※ 페이지를 열어 급수현황을 입력해주세요';
-  const H=335; // 기존 285 + 배차차량 정보 한 줄(약 50px) 추가
+  const subFontSizeBig=24; // 기존 20px보다 크게
+
+  const titleFontSpec=`bold ${titleFontSize}px "Malgun Gothic"`;
+  const measureCanvas=document.createElement('canvas');
+  const mctx=measureCanvas.getContext('2d');
+  mctx.font=titleFontSpec;
+  const titleWidth=mctx.measureText(TITLE).width;
+  const logoW=logoH*(img.width/img.height);
+  const gap=22;
+  const contentW=logoW+gap+titleWidth;
+  const logoX=(W-contentW)/2, textX=logoX+logoW+gap;
+
+  const row1Y=95;
+  const vehicleY=row1Y+logoH/2+40;
+  // 안내문(SUB)을 배차차량 정보 바로 아래 3px 간격으로 배치.
+  const subY=vehicleY+vehFontSize/2+3+subFontSizeBig/2;
+  const H=Math.round(subY+subFontSizeBig/2+30);
 
   const canvas=document.createElement('canvas');
   canvas.width=W; canvas.height=H;
@@ -295,15 +311,6 @@ async function buildDispatchBanner(vehicleText){
   ctx.fillStyle='#ffffff';
   ctx.fillRect(0,0,W,H);
 
-  const titleFontSpec=`bold ${titleFontSize}px "Malgun Gothic"`;
-  ctx.font=titleFontSpec;
-  const titleWidth=ctx.measureText(TITLE).width;
-  const logoW=logoH*(img.width/img.height);
-  const gap=22;
-  const contentW=logoW+gap+titleWidth;
-  const logoX=(W-contentW)/2, textX=logoX+logoW+gap;
-
-  const row1Y=95;
   ctx.drawImage(img, logoX, row1Y-logoH/2, logoW, logoH);
   ctx.fillStyle='#1a3a6b';
   ctx.font=titleFontSpec;
@@ -315,12 +322,12 @@ async function buildDispatchBanner(vehicleText){
   ctx.fillStyle='#dc2626';
   ctx.font=`bold ${vehFontSize}px "Malgun Gothic"`;
   ctx.textAlign='center';
-  ctx.fillText(vehicleText, W/2, row1Y+logoH/2+40);
+  ctx.fillText(vehicleText, W/2, vehicleY);
 
   ctx.fillStyle='#374151';
-  ctx.font=`${subFontSize}px "Malgun Gothic"`;
+  ctx.font=`bold ${subFontSizeBig}px "Malgun Gothic"`;
   ctx.textAlign='center';
-  ctx.fillText(SUB, W/2, H-32);
+  ctx.fillText(SUB, W/2, subY);
 
   ctx.strokeStyle='#1a3a6b';
   ctx.lineWidth=8;
