@@ -11,7 +11,7 @@
   .modeSwitch button{padding:6px 12px;border:none;border-radius:5px;cursor:pointer;font-size:12px;font-weight:600;background:transparent;color:#374151}
   .modeSwitch button.active{background:#1a3a6b;color:#fff}
   table{width:100%;border-collapse:collapse;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1)}
-  th,td{padding:8px 10px;border-bottom:1px solid #e5e7eb;font-size:13px;text-align:left;vertical-align:middle}
+  th,td{padding:8px 10px;border:1px solid #e5e7eb;font-size:13px;text-align:center;vertical-align:middle}
   th{background:#eef2f7;color:#374151;font-weight:600}
   th.sortable{cursor:pointer;user-select:none}
   th.sortable:after{content:' ⇕';color:#9ca3af;font-size:10px}
@@ -250,7 +250,7 @@ async function getKakaoAccessToken(){
 // "물차 배차 안내" 큰 제목은 텍스트가 아니라 K-water CI 로고와 함께 이미지로 만들어 카드
 // 상단에 배너로 넣는다(카카오 메시지의 title 글자 크기는 고정이라 이 방법으로만 크게 보일 수 있다).
 const DISPATCH_BANNER_URL='https://rawcdn.githack.com/ddddd6002-design/pub/main/assets/dispatch-banner.png';
-const DISPATCH_BANNER_W=844, DISPATCH_BANNER_H=300;
+const DISPATCH_BANNER_W=700, DISPATCH_BANNER_H=254;
 async function sendKakaoMessage(description, vehicle){
   const token=await getKakaoAccessToken();
   if(!token){
@@ -394,7 +394,7 @@ async function refreshDispatch(){
 
 function renderRows(){
   const isAdmin = MODE==='admin';
-  document.getElementById('actionColHead').textContent = isAdmin ? '배차 / 종료 / 초기화 / 메세지전송' : '';
+  document.getElementById('actionColHead').textContent = isAdmin ? '배차정보' : '';
   const body=document.getElementById('rowsBody');
   const flat=[];
   DISPATCH_ROWS.forEach(row=>{
