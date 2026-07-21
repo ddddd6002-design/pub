@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>물차기사</title>
+<style>
+  *{box-sizing:border-box}
+  body{font-family:'맑은 고딕','Malgun Gothic',sans-serif;background:#f3f4f6;margin:0;padding:16px;color:#111;-webkit-tap-highlight-color:transparent}
+  h1{font-size:18px;color:#1a3a6b;margin:0 0 14px;text-align:center}
+  .card{background:#fff;border-radius:10px;padding:18px;box-shadow:0 1px 4px rgba(0,0,0,.1);margin-bottom:14px}
+  label{display:block;font-size:13px;color:#374151;margin-bottom:6px;font-weight:600}
+  input[type=text]{width:100%;padding:12px;border:1px solid #d1d5db;border-radius:6px;font-size:16px;box-sizing:border-box}
+  button{width:100%;padding:14px;border:none;border-radius:8px;cursor:pointer;font-size:15px;font-weight:700;margin-top:10px}
+  .btn-primary{background:#2563eb;color:#fff}
+  .btn-step{background:#e5e7eb;color:#9ca3af}
+  .btn-step.enabled{background:#0f766e;color:#fff}
+  .btn-step.done{background:#dcfce7;color:#166534}
+  .btn-gray{background:#6b7280;color:#fff;font-size:13px;padding:10px}
+  .countBox{text-align:center;padding:14px;background:#1a3a6b;color:#fff;border-radius:10px;margin-bottom:14px;font-size:15px;font-weight:700}
+  .infoRow{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f0f0f0;font-size:14px}
+  .infoRow:last-child{border-bottom:none}
+  .infoRow .lbl{color:#6b7280}
+  .infoRow .val{font-weight:600;text-align:right;max-width:65%}
+  #status{font-size:12px;color:#6b7280;margin-top:10px;text-align:center;white-space:pre-wrap}
+  .pickList div{padding:12px;border:1px solid #d1d5db;border-radius:6px;margin-bottom:8px;cursor:pointer;font-size:14px}
+  .pickList div:active{background:#eef2f7}
+  .hidden{display:none !important}
+</style>
+</head>
+<body>
+  <h1>🚚 물차기사</h1>
+
+  <div class="card" id="loginCard">
+    <label>차량번호</label>
+    <input type="text" id="vehicleInput" placeholder="예: 05가1234">
+    <button class="btn-primary" onclick="login()">로그인</button>
+    <div id="loginStatus" style="font-size:12px;color:#dc2626;margin-top:8px"></div>
+  </div>
+
+  <div class="card hidden" id="pickCard">
+    <label>배차된 노선이 여러 개 있습니다. 하나를 선택하세요.</label>
+    <div class="pickList" id="pickList"></div>
+  </div>
+
+  <div class="hidden" id="mainCard">
+    <div class="countBox" id="countBox">급수완료 0회</div>
+    <div class="card">
+      <div class="infoRow"><span class="lbl">차량번호</span><span class="val" id="infoVehicle"></span></div>
+      <div class="infoRow"><span class="lbl">충수지점</span><span class="val" id="infoFrom"></span></div>
+      <div class="infoRow"><span class="lbl">급수지점</span><span class="val" id="infoTo"></span></div>
+      <div class="infoRow"><span class="lbl">현재 단계</span><span class="val" id="infoStage"></span></div>
+    </div>
+    <div class="card">
+      <button class="btn-step" id="btnArriveFrom" onclick="doStep('충수도착')">1. 충수지점 도착</button>
+      <button class="btn-step" id="btnDoneFrom" onclick="doStep('충수완료')">2. 충수완료</button>
+      <button class="btn-step" id="btnArriveTo" onclick="doStep('급수도착')">3. 급수지점 도착</button>
+      <button class="btn-step" id="btnDoneTo" onclick="doStep('급수완료')">4. 급수완료</button>
+    </div>
+    <button class="btn-gray" onclick="logout()">로그아웃</button>
+  </div>
+
+  <div id="status"></div>
+
+<script>
+const REPO='ddddd6002-design/pub';
+const DATA_FILE='dispatch.json';
+const STAGE_ORDER=['대기','충수도착','충수완료','급수도착','급수완료'];
+let CURRENT={reqId:null, slotIdx:null, row:null, slot:null};
+
+function setStatus(msg, color){ const el=document.getElementById('status'); el.textContent=msg; el.style.color=color||'#6b7280'; }
+function getToken(){ return localStorage.getItem('gh_dispatch_token')||''; }
+function setToken(){
+  const cur=getToken();
+  const t=prompt('GitHub Personal Access Token을 입력하세요.\n(관리자에게 미리 전달받은 토큰을 입력하세요. 이 휴대폰의 브라우저에만 저장됩니다.)', cur);
+  if(t===null) return null;
+  localStorage.setItem('gh_dispatch_token', t.trim());
+  return t.trim();
+}
+function b64ToUtf8(b64){
+  const bin=atob(b64.replace(/\n/g,''));
+  const bytes=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+  return new TextDecoder('utf-8').decode(bytes);
+}
+function utf8ToB64(str){
+  const bytes=new TextEncoder().encode(str);
+  let bin=''; bytes.forEach(b=>bin+=String.fromCharCode(b));
+  return btoa(bin);
+}
+async function getFileWithSha(filePath){
+  const token=getToken();
+  const headers={'Accept':'application/vnd.github+json'};
+  if(token) headers['Authorization']='Bearer '+token;
+  const res=await fetch(`https://api.github.com/repos/${REPO}/contents/${filePath}`,{cache:'no-store',headers});
+  if(res.status===404) return {data:null, sha:null};
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  const j=await res.json();
+  return {data: j.content?b64ToUtf8(j.content):null, sha:j.sha};
+}
+async function updateJsonFileWithRetry(filePath, mutatorFn, commitMsg){
+  let token=getToken();
+  if(!token){ token=setToken(); if(!token) throw new Error('토큰이 필요합니다.'); }
+  for(let attempt=0; attempt<5; attempt++){
+    const {data:text, sha}=await getFileWithSha(filePath);
+    const current=text?JSON.parse(text):[];
+    const updated=mutatorFn(current);
+    const headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','Content-Type':'application/json'};
+    const body={message: commitMsg||('update '+filePath), content: utf8ToB64(JSON.stringify(updated,null,2))};
+    if(sha) body.sha=sha;
+    const putRes=await fetch(`https://api.github.com/repos/${REPO}/contents/${filePath}`,{method:'PUT',headers,body:JSON.stringify(body)});
+    if(putRes.ok) return updated;
+    if(putRes.status===409 || putRes.status===422){ await new Promise(r=>setTimeout(r,300+attempt*300)); continue; }
+    const t=await putRes.text();
+    throw new Error(`HTTP ${putRes.status}: ${t}`);
+  }
+  throw new Error('저장 충돌이 반복되어 실패했습니다. 다시 시도해주세요.');
+}
+function ensureSlots(row){
+  if(!Array.isArray(row.slots)) row.slots=[];
+  while(row.slots.length < (row.투입대수||0)){
+    row.slots.push({차량번호:null,차고지:null,물차크기:null,거리km:null,배차시각:null,배차종료시각:null,단계:'대기',급수완료횟수:0,급수기록:[]});
+  }
+  row.slots.forEach(s=>{ if(!Array.isArray(s.급수기록)) s.급수기록=[]; if(s.배차종료시각===undefined) s.배차종료시각=null; });
+  return row;
+}
+// 주소 뒤에 절점명(배수지명)이 있으면 괄호로 붙여서 어떤 배수지인지 바로 알아볼 수 있게 한다.
+function addrWithNode(addr, nodeName){
+  return nodeName ? `${addr} (${nodeName})` : addr;
+}
+
+async function login(){
+  const vehicle=(document.getElementById('vehicleInput').value||'').trim();
+  if(!vehicle){ document.getElementById('loginStatus').textContent='차량번호를 입력해주세요.'; return; }
+  setStatus('⏳ 배차 정보를 확인하는 중...', '#2563eb');
+  try{
+    const {data:text}=await getFileWithSha(DATA_FILE);
+    const rows=(text?JSON.parse(text):[]).map(ensureSlots);
+    const matches=[];
+    rows.forEach(row=>{
+      row.slots.forEach((slot,idx)=>{ if(slot.차량번호===vehicle) matches.push({row, slot, idx}); });
+    });
+    if(!matches.length){
+      setStatus('');
+      document.getElementById('loginStatus').textContent='이 차량번호로 배차된 노선이 없습니다. 관리자에게 배차를 요청해주세요.';
+      return;
+    }
+    localStorage.setItem('wt_driver_vehicle', vehicle);
+    if(matches.length===1){
+      selectAssignment(matches[0]);
+    }else{
+      showPickList(matches);
+    }
+    setStatus('');
+  }catch(e){
+    setStatus('❌ 조회 실패: '+e.message, '#dc2626');
+  }
+}
+function showPickList(matches){
+  document.getElementById('loginCard').classList.add('hidden');
+  document.getElementById('pickCard').classList.remove('hidden');
+  document.getElementById('pickList').innerHTML = matches.map((m,i)=>
+    `<div onclick='selectAssignmentByIndex(${i})'>${escHtml(addrWithNode(m.row.충수지점, m.row.충수절점명))} → ${escHtml(addrWithNode(m.row.급수지점, m.row.급수절점명))}</div>`
+  ).join('');
+  window._pickMatches=matches;
+}
+function selectAssignmentByIndex(i){ selectAssignment(window._pickMatches[i]); }
+function escHtml(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function selectAssignment({row, slot, idx}){
+  CURRENT={reqId:row.id, slotIdx:idx, row, slot};
+  document.getElementById('loginCard').classList.add('hidden');
+  document.getElementById('pickCard').classList.add('hidden');
+  document.getElementById('mainCard').classList.remove('hidden');
+  renderMain();
+}
+function renderMain(){
+  const {row, slot}=CURRENT;
+  document.getElementById('infoVehicle').textContent=slot.차량번호||'';
+  document.getElementById('infoFrom').textContent=addrWithNode(row.충수지점, row.충수절점명);
+  document.getElementById('infoTo').textContent=addrWithNode(row.급수지점, row.급수절점명);
+  document.getElementById('infoStage').textContent=slot.단계;
+  document.getElementById('countBox').textContent=`급수완료 ${slot.급수완료횟수||0}회`;
+  const stage=slot.단계;
+  const stageIdx=STAGE_ORDER.indexOf(stage);
+  const buttons=[
+    {id:'btnArriveFrom', stage:'충수도착', afterIdx:0},
+    {id:'btnDoneFrom',   stage:'충수완료', afterIdx:1},
+    {id:'btnArriveTo',   stage:'급수도착', afterIdx:2},
+    {id:'btnDoneTo',     stage:'급수완료', afterIdx:3}
+  ];
+  buttons.forEach(b=>{
+    const el=document.getElementById(b.id);
+    el.classList.remove('enabled','done');
+    const myTargetIdx=STAGE_ORDER.indexOf(b.stage);
+    if(stageIdx >= myTargetIdx && stage!=='대기'){ el.classList.add('done'); }
+    if(stageIdx === b.afterIdx){ el.classList.add('enabled'); }
+  });
+}
+async function doStep(nextStage){
+  const {reqId, slotIdx}=CURRENT;
+  setStatus('⏳ 처리 중...', '#2563eb');
+  try{
+    let updatedSlot=null;
+    await updateJsonFileWithRetry(DATA_FILE, (rows)=>{
+      rows.forEach(ensureSlots);
+      const r=rows.find(x=>x.id===reqId);
+      if(!r || !r.slots[slotIdx]) return rows;
+      const slot=r.slots[slotIdx];
+      if(nextStage==='급수완료'){
+        slot.급수완료횟수=(slot.급수완료횟수||0)+1;
+        if(!Array.isArray(slot.급수기록)) slot.급수기록=[];
+        slot.급수기록.push(Date.now()); // 급수회차별 완료시각 기록 (사고대응 총괄현황 상세조회용)
+        slot.단계='대기'; // 다음 왕복을 위해 초기 단계로 되돌림
+      } else {
+        slot.단계=nextStage;
+      }
+      updatedSlot=Object.assign({}, slot);
+      return rows;
+    }, `물차기사 단계갱신: ${reqId} → ${nextStage}`);
+    if(updatedSlot){ CURRENT.slot=updatedSlot; renderMain(); }
+    setStatus('✅ 반영되었습니다.', '#16a34a');
+  }catch(e){
+    setStatus('❌ 처리 실패: '+e.message, '#dc2626');
+  }
+}
+function logout(){
+  localStorage.removeItem('wt_driver_vehicle');
+  CURRENT={reqId:null, slotIdx:null, row:null, slot:null};
+  document.getElementById('mainCard').classList.add('hidden');
+  document.getElementById('pickCard').classList.add('hidden');
+  document.getElementById('loginCard').classList.remove('hidden');
+  document.getElementById('vehicleInput').value='';
+  document.getElementById('loginStatus').textContent='';
+}
+
+(function autoRestore(){
+  // 카카오톡으로 받은 링크(?vehicle=차량번호)로 들어온 경우 그 차량번호로 자동 로그인한다.
+  const fromLink=new URLSearchParams(location.search).get('vehicle');
+  history.replaceState({}, '', location.pathname);
+  const saved=fromLink||localStorage.getItem('wt_driver_vehicle');
+  if(saved){ document.getElementById('vehicleInput').value=saved; login(); }
+})();
+</script>
+</body>
+</html>
