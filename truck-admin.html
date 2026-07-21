@@ -299,9 +299,8 @@ async function buildDispatchBanner(vehicleText){
   const logoX=(W-contentW)/2, textX=logoX+logoW+gap;
 
   const row1Y=95;
-  const vehicleY=row1Y+logoH/2+40;
-  // 안내문(SUB)을 배차차량 정보 바로 아래 3px 간격으로 배치.
-  const subY=vehicleY+vehFontSize/2+3+subFontSizeBig/2;
+  const vehicleY=row1Y+logoH/2+65; // 제목~배차차량 정보 줄간격 확대(40→65)
+  const subY=vehicleY+vehFontSize/2+22+subFontSizeBig/2; // 배차차량 정보~안내문 줄간격 확대(3→22)
   const H=Math.round(subY+subFontSizeBig/2+30);
 
   const canvas=document.createElement('canvas');
