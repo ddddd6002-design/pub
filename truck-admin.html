@@ -14,7 +14,7 @@
   th,td{padding:8px 10px;border:1px solid #e5e7eb;font-size:13px;text-align:center;vertical-align:middle}
   th{background:#eef2f7;color:#374151;font-weight:600}
   th.sortable{cursor:pointer;user-select:none}
-  th.sortable:after{content:' ⇕';color:#9ca3af;font-size:10px}
+  th.sortable .sortArrow{color:#9ca3af;font-size:10px;margin-left:3px}
   input[type=text],input[type=number],select{width:100%;padding:5px 6px;border:1px solid #d1d5db;border-radius:4px;font-size:12px;box-sizing:border-box}
   button{padding:6px 12px;border:none;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600}
   button:disabled{opacity:.4;cursor:not-allowed}
@@ -39,7 +39,7 @@
   .settingsSection{margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid #e5e7eb}
   .settingsSection:last-child{border-bottom:none}
   .settingsSection h3{font-size:13px;color:#374151;margin:0 0 8px}
-  .vehRow{display:grid;grid-template-columns:110px 1fr 1fr 70px;gap:6px;margin-bottom:6px;align-items:center}
+  .vehRow{display:grid;grid-template-columns:110px 1fr 1fr 1fr 70px;gap:6px;margin-bottom:6px;align-items:center}
   .vehRow.head{font-size:11px;color:#6b7280;font-weight:600}
   .hint{font-size:11px;color:#9ca3af;margin-top:6px}
 </style>
@@ -94,7 +94,7 @@
       </div>
       <div class="settingsSection">
         <h3>차량목록</h3>
-        <div class="vehRow head"><div>물차크기</div><div>차량번호</div><div>차고지</div><div></div></div>
+        <div class="vehRow head"><div>물차크기</div><div>차량번호</div><div>차고지</div><div>전화번호</div><div></div></div>
         <div id="vehListBody"></div>
         <button class="btn-gray" onclick="addVehicleRow()" style="margin-top:6px">+ 차량 추가</button>
         <div class="hint">충수지점까지 거리는 여기서 입력하지 않고, 배차 시점에 차고지 → 해당 요청의 충수지점 경로로 자동 계산됩니다.</div>
@@ -112,10 +112,10 @@
       <h2>차량 배차 <span id="dispatchTargetLabel" style="font-size:12px;color:#6b7280;font-weight:400"></span></h2>
       <table>
         <thead><tr>
-          <th class="sortable" onclick="sortVehiclePicker('물차크기')">용량</th>
+          <th class="sortable" onclick="sortVehiclePicker('물차크기')">용량<span class="sortArrow" id="sortArrow_물차크기">⇕</span></th>
           <th>차량번호</th>
           <th>차고지</th>
-          <th class="sortable" onclick="sortVehiclePicker('거리km')">충수지점까지 거리</th>
+          <th class="sortable" onclick="sortVehiclePicker('거리km')">충수지점까지 거리<span class="sortArrow" id="sortArrow_거리km">⇕</span></th>
           <th></th>
         </tr></thead>
         <tbody id="vehPickerBody"><tr><td colspan="5" style="text-align:center;color:#9ca3af;padding:20px">불러오는 중...</td></tr></tbody>
@@ -256,8 +256,8 @@ async function getKakaoAccessToken(){
 // CDN 엣지 캐시 때문에 갱신이 계속 지연되어, 캐시를 적극적으로 하지 않는 raw.githack.com으로 변경.
 // 카카오는 image_url을 한 번 받아오면 내용이 바뀌어도 자체 캐시를 계속 재사용하므로,
 // 배너를 수정할 때마다 파일명을 새로 만들어야 한다(쿼리스트링만 바꾸는 건 소용없었음).
-const DISPATCH_BANNER_URL='https://raw.githack.com/ddddd6002-design/pub/main/assets/dispatch-banner-v8.png';
-const DISPATCH_BANNER_W=573, DISPATCH_BANNER_H=264;
+const DISPATCH_BANNER_URL='https://raw.githack.com/ddddd6002-design/pub/main/assets/dispatch-banner-v9.png';
+const DISPATCH_BANNER_W=573, DISPATCH_BANNER_H=277;
 async function sendKakaoMessage(description, vehicle){
   const token=await getKakaoAccessToken();
   if(!token){
@@ -508,12 +508,16 @@ async function openDispatchModal(reqId, slotIdx){
     }
     const targetPt=await geocodeAddress(row.충수지점);
     _pickerRows=await Promise.all(VEHICLES.map(async v=>{
-      let distKm=null;
+      let distKm=null, isEstimate=false;
       try{
         const fromPt=await geocodeAddress(v.차고지);
-        if(fromPt && targetPt) distKm=await osrmDistanceKm(fromPt, targetPt);
+        if(fromPt && targetPt){
+          distKm=await osrmDistanceKm(fromPt, targetPt);
+          // 길찾기(도로 경로) 계산이 안 되면(OSRM 응답 실패 등) 직선거리로 대체한다.
+          if(distKm==null){ distKm=haversineKm(fromPt, targetPt); isEstimate=true; }
+        }
       }catch(e){}
-      return Object.assign({}, v, {거리km:distKm});
+      return Object.assign({}, v, {거리km:distKm, 거리추정:isEstimate});
     }));
     _pickerSort={key:null, dir:1};
     renderVehiclePicker();
@@ -529,6 +533,16 @@ function sortVehiclePicker(key){
   _pickerSort = (_pickerSort.key===key) ? {key, dir:-_pickerSort.dir} : {key, dir:1};
   renderVehiclePicker();
 }
+// 정렬 상태(오름차순/내림차순)를 헤더의 화살표 아이콘으로 표시한다 — 정렬 안 된 컬럼은
+// 중립(⇕), 현재 정렬 기준인 컬럼은 오름차순(▲)/내림차순(▼)으로 바뀐다.
+function updateSortArrows(){
+  ['물차크기','거리km'].forEach(k=>{
+    const el=document.getElementById('sortArrow_'+k);
+    if(!el) return;
+    if(_pickerSort.key===k) el.textContent = _pickerSort.dir>0 ? '▲' : '▼';
+    else el.textContent='⇕';
+  });
+}
 function renderVehiclePicker(){
   let rows=_pickerRows.slice();
   const {key, dir}=_pickerSort;
@@ -541,12 +555,13 @@ function renderVehiclePicker(){
       return av>bv ? dir : (av<bv ? -dir : 0);
     });
   }
+  updateSortArrows();
   document.getElementById('vehPickerBody').innerHTML = rows.map(v=>`
     <tr>
       <td>${escHtml(v.물차크기)}</td>
       <td>${escHtml(v.차량번호)}</td>
       <td>${escHtml(v.차고지)}</td>
-      <td>${v.거리km!=null?v.거리km.toFixed(1)+'km':'계산 불가'}</td>
+      <td>${v.거리km!=null?v.거리km.toFixed(1)+'km'+(v.거리추정?' (직선)':''):'계산 불가'}</td>
       <td><button class="btn-primary" onclick="assignVehicle('${escHtml(v.차량번호).replace(/'/g,"\\'")}','${escHtml(v.차고지).replace(/'/g,"\\'")}','${escHtml(v.물차크기).replace(/'/g,"\\'")}',${v.거리km!=null?v.거리km:'null'})">선택</button></td>
     </tr>`).join('');
 }
@@ -613,6 +628,14 @@ async function osrmDistanceKm(from, to){
   }catch(e){}
   return null;
 }
+// 길찾기(OSRM) 서버가 응답하지 않을 때(방화벽 차단 등)를 위한 대체 계산 — 두 좌표 간 직선거리(km).
+function haversineKm(from, to){
+  const R=6371;
+  const toRad=d=>d*Math.PI/180;
+  const dLat=toRad(to.lat-from.lat), dLng=toRad(to.lng-from.lng);
+  const a=Math.sin(dLat/2)**2 + Math.cos(toRad(from.lat))*Math.cos(toRad(to.lat))*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
 
 // ── 설정 모달 (토큰 + 차량목록) ──
 function openSettings(){
@@ -629,11 +652,12 @@ function renderVehicleSettingsRows(){
       <select onchange="VEHICLES[${i}].물차크기=this.value">${TRUCK_SIZES.map(s=>`<option${s===v.물차크기?' selected':''}>${s}</option>`).join('')}</select>
       <input type="text" value="${escHtml(v.차량번호)}" oninput="VEHICLES[${i}].차량번호=this.value">
       <input type="text" value="${escHtml(v.차고지)}" oninput="VEHICLES[${i}].차고지=this.value">
+      <input type="text" value="${escHtml(v.전화번호)}" placeholder="010-0000-0000" oninput="VEHICLES[${i}].전화번호=this.value">
       <button class="btn-red" onclick="removeVehicleRow(${i})">삭제</button>
     </div>`).join('');
 }
 function addVehicleRow(){
-  VEHICLES.push({물차크기:'8ton', 차량번호:'', 차고지:''});
+  VEHICLES.push({물차크기:'8ton', 차량번호:'', 차고지:'', 전화번호:''});
   renderVehicleSettingsRows();
 }
 function removeVehicleRow(i){
