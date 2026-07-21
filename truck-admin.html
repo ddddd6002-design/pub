@@ -256,7 +256,7 @@ async function getKakaoAccessToken(){
 // CDN 엣지 캐시 때문에 갱신이 계속 지연되어, 캐시를 적극적으로 하지 않는 raw.githack.com으로 변경.
 // 카카오는 image_url을 한 번 받아오면 내용이 바뀌어도 자체 캐시를 계속 재사용하므로,
 // 배너를 수정할 때마다 파일명을 새로 만들어야 한다(쿼리스트링만 바꾸는 건 소용없었음).
-const DISPATCH_BANNER_URL='https://raw.githack.com/ddddd6002-design/pub/main/assets/dispatch-banner-v10.png';
+const DISPATCH_BANNER_URL='https://raw.githack.com/ddddd6002-design/pub/main/assets/dispatch-banner-v11.png';
 const DISPATCH_BANNER_W=573, DISPATCH_BANNER_H=285;
 async function sendKakaoMessage(description, vehicle){
   const token=await getKakaoAccessToken();
@@ -290,7 +290,7 @@ async function sendKakaoMessage(description, vehicle){
   }
 }
 function _dispatchMsgText(row, slot){
-  return `배차차량 : ${slot.차량번호} (${slot.물차크기})\n\n아래 페이지를 열어 급수현황을 입력해주세요.`;
+  return `배차차량 : ${slot.차량번호} (${slot.물차크기})`;
 }
 // "메세지 전송" 버튼 — 이미 배차된 슬롯에 대해 카카오톡 메시지를 다시(또는 처음) 보낸다.
 async function resendDispatchMessage(reqId, slotIdx){
@@ -608,19 +608,36 @@ async function assignVehicle(차량번호, 차고지, 물차크기, 거리km){
 }
 
 // ── 지오코딩(VWorld) + 경로거리(OSRM) ──
+// VWorld 주소 API는 CORS(Access-Control-Allow-Origin)를 응답에 포함하지 않아, Electron
+// 앱(webSecurity 꺼짐) 밖의 일반 브라우저에서 fetch()로 호출하면 항상 조용히 실패한다
+// (그래서 지금까지 "차고지/충수지점 주소 확인 필요"만 계속 떴다). VWorld는 대신 JSONP
+// (callback= 파라미터로 <script> 태그를 통해 우회하는 방식)를 지원하므로 그걸 사용한다.
+let _jsonpSeq=0;
+function jsonpRequest(url, timeoutMs){
+  return new Promise((resolve, reject)=>{
+    const cbName='_vworldCb'+(_jsonpSeq++);
+    const script=document.createElement('script');
+    let done=false;
+    const timer=setTimeout(()=>{ if(done) return; done=true; cleanup(); reject(new Error('JSONP timeout')); }, timeoutMs||8000);
+    function cleanup(){ delete window[cbName]; if(script.parentNode) script.parentNode.removeChild(script); clearTimeout(timer); }
+    window[cbName]=(data)=>{ if(done) return; done=true; cleanup(); resolve(data); };
+    script.onerror=()=>{ if(done) return; done=true; cleanup(); reject(new Error('JSONP load error')); };
+    script.src=url+(url.includes('?')?'&':'?')+'callback='+cbName;
+    document.head.appendChild(script);
+  });
+}
 async function geocodeAddress(addr){
   if(!addr) return null;
   if(_geocodeCache[addr]!==undefined) return _geocodeCache[addr];
   for(const type of ['road','parcel']){
     try{
       const url=`https://api.vworld.kr/req/address?service=address&request=getcoord&version=2.0&crs=EPSG:4326&address=${encodeURIComponent(addr)}&refine=true&simple=false&format=json&type=${type}&key=${VWORLD_KEY}`;
-      const res=await fetch(url);
-      const json=await res.json();
+      const json=await jsonpRequest(url);
       if(json.response&&json.response.status==='OK'&&json.response.result){
         const pt=json.response.result.point;
         if(pt&&pt.x&&pt.y){ const r={lat:+pt.y,lng:+pt.x}; _geocodeCache[addr]=r; return r; }
       }
-    }catch(e){}
+    }catch(e){ console.warn('[지오코딩] JSONP 실패:', addr, e.message); }
   }
   _geocodeCache[addr]=null;
   return null;
