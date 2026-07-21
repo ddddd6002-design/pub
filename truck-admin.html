@@ -247,14 +247,29 @@ async function getKakaoAccessToken(){
   return null;
 }
 // text 안의 링크를 눌러 물차기사 페이지(?vehicle=차량번호로 자동 로그인)를 열 수 있게 만든다.
-async function sendKakaoMessage(text, vehicle){
+// "물차 배차 안내" 큰 제목은 텍스트가 아니라 K-water CI 로고와 함께 이미지로 만들어 카드
+// 상단에 배너로 넣는다(카카오 메시지의 title 글자 크기는 고정이라 이 방법으로만 크게 보일 수 있다).
+const DISPATCH_BANNER_URL='https://rawcdn.githack.com/ddddd6002-design/pub/main/assets/dispatch-banner.png';
+const DISPATCH_BANNER_W=844, DISPATCH_BANNER_H=300;
+async function sendKakaoMessage(description, vehicle){
   const token=await getKakaoAccessToken();
   if(!token){
     setStatus('⚠ 카카오톡이 연동되어 있지 않아 메시지를 보내지 못했습니다. (설정에서 연동해주세요)', '#b45309');
     return false;
   }
   const url = vehicle ? `${DRIVER_PAGE_URL}?vehicle=${encodeURIComponent(vehicle)}` : DRIVER_PAGE_URL;
-  const template={ object_type:'text', text, link:{web_url:url, mobile_web_url:url}, button_title:'물차기사 페이지 열기' };
+  const template={
+    object_type:'feed',
+    content:{
+      title:'물차 배차 안내',
+      description,
+      image_url: DISPATCH_BANNER_URL,
+      image_width: DISPATCH_BANNER_W,
+      image_height: DISPATCH_BANNER_H,
+      link:{web_url:url, mobile_web_url:url}
+    },
+    buttons:[{title:'물차기사 페이지 열기', link:{web_url:url, mobile_web_url:url}}]
+  };
   try{
     const body=new URLSearchParams({template_object:JSON.stringify(template)});
     const res=await fetch('https://kapi.kakao.com/v2/api/talk/memo/default/send',{method:'POST',headers:{'Authorization':'Bearer '+token,'Content-Type':'application/x-www-form-urlencoded'},body});
@@ -268,7 +283,7 @@ async function sendKakaoMessage(text, vehicle){
   }
 }
 function _dispatchMsgText(row, slot){
-  return `🚚 물차 배차 안내\n${row.충수지점}${row.충수절점명?` (${row.충수절점명})`:''} → ${row.급수지점}${row.급수절점명?` (${row.급수절점명})`:''}\n차량: ${slot.차량번호} (${slot.물차크기})\n아래 링크를 눌러 배차 화면을 열어주세요.`;
+  return `배차차량 : ${slot.차량번호} (${slot.물차크기})\n충수지점 : ${row.충수지점}${row.충수절점명?` (${row.충수절점명})`:''}\n급수지점 : ${row.급수지점}${row.급수절점명?` (${row.급수절점명})`:''}\n\n아래 링크에서 공급현황을 차례대로 입력해주세요.\n입력된 정보는 비용정산 시 참고자료로 활용됩니다.`;
 }
 // "메세지 전송" 버튼 — 이미 배차된 슬롯에 대해 카카오톡 메시지를 다시(또는 처음) 보낸다.
 async function resendDispatchMessage(reqId, slotIdx){
