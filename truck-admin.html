@@ -249,32 +249,111 @@ async function getKakaoAccessToken(){
 // text 안의 링크를 눌러 물차기사 페이지(?vehicle=차량번호로 자동 로그인)를 열 수 있게 만든다.
 // "물차 배차 안내" 큰 제목은 텍스트가 아니라 K-water CI 로고와 함께 이미지로 만들어 카드
 // 상단에 배너로 넣는다(카카오 메시지의 title 글자 크기는 고정이라 이 방법으로만 크게 보일 수 있다).
-// 카카오톡은 image_url을 최초 1회 받아온 뒤 그 주소로 계속 캐시해서 재사용하므로, 배너
-// 이미지를 바꿀 때마다 ?v= 뒤의 버전을 올려서 새 주소로 인식시켜야 갱신된 이미지가 보인다.
-// 카카오톡은 image_url을 처음 받아온 뒤 쿼리스트링이 달라도 캐시를 재사용하는 경우가
-// 있어서, 배너를 바꿀 때는 쿼리스트링이 아니라 파일명 자체를 새로 만든다. rawcdn.githack.com은
-// CDN 엣지 캐시 때문에 갱신이 계속 지연되어, 캐시를 적극적으로 하지 않는 raw.githack.com으로 변경.
-// 카카오는 image_url을 한 번 받아오면 내용이 바뀌어도 자체 캐시를 계속 재사용하므로,
-// 배너를 수정할 때마다 파일명을 새로 만들어야 한다(쿼리스트링만 바꾸는 건 소용없었음).
+// 카카오 피드템플릿의 title/description은 글자 굵기·크기를 우리가 정할 수 없어서(카카오가
+// 자체 스타일로 렌더링), "배차차량 정보"를 확실하게 굵고 크게 보이도록 하려면 카카오에
+// 전송하는 배너 이미지 자체에 그 정보를 직접 그려 넣어야 한다. 그래서 정적 배너 파일을
+// 쓰는 대신, 전송할 때마다 차량 정보를 포함한 배너를 즉석에서 그려 GitHub에 올리고 그
+// 주소를 image_url로 사용한다.
+const KWATER_LOGO_URL='https://raw.githack.com/ddddd6002-design/pub/main/assets/kwater-ci.png';
+let _kwaterLogoImg=null;
+function loadKwaterLogo(){
+  return new Promise((resolve,reject)=>{
+    if(_kwaterLogoImg){ resolve(_kwaterLogoImg); return; }
+    const img=new Image();
+    img.crossOrigin='anonymous'; // raw.githack.com은 Access-Control-Allow-Origin:*를 보내 캔버스에 안전하게 그릴 수 있다.
+    img.onload=()=>{ _kwaterLogoImg=img; resolve(img); };
+    img.onerror=()=>reject(new Error('로고 이미지를 불러오지 못했습니다.'));
+    img.src=KWATER_LOGO_URL;
+  });
+}
+function bytesToBase64(bytes){
+  let binary=''; const chunk=0x8000;
+  for(let i=0;i<bytes.length;i+=chunk) binary+=String.fromCharCode.apply(null, bytes.subarray(i, i+chunk));
+  return btoa(binary);
+}
+async function pushImageToGithub(path, blob){
+  const token=getToken();
+  if(!token) throw new Error('GitHub 토큰이 없습니다.');
+  const buf=new Uint8Array(await blob.arrayBuffer());
+  const body={message:'배차 알림 배너 자동생성', content:bytesToBase64(buf)};
+  const headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','Content-Type':'application/json'};
+  const res=await fetch(`https://api.github.com/repos/${REPO}/contents/${path}`,{method:'PUT',headers,body:JSON.stringify(body)});
+  if(!res.ok) throw new Error('배너 업로드 실패: HTTP '+res.status);
+  return `https://raw.githack.com/${REPO}/main/${path}`;
+}
+// CI 로고 + "물차배차안내" + 배차차량 정보(굵고 크게, 강조색) + 하단 안내문을 한 이미지에 그린다.
+async function buildDispatchBanner(vehicleText){
+  const img=await loadKwaterLogo();
+  const W=573, logoH=80, titleFontSize=52, vehFontSize=34, subFontSize=20;
+  const TITLE='물차배차안내', SUB='※ 페이지를 열어 급수현황을 입력해주세요';
+  const H=335; // 기존 285 + 배차차량 정보 한 줄(약 50px) 추가
+
+  const canvas=document.createElement('canvas');
+  canvas.width=W; canvas.height=H;
+  const ctx=canvas.getContext('2d');
+
+  ctx.fillStyle='#ffffff';
+  ctx.fillRect(0,0,W,H);
+
+  const titleFontSpec=`bold ${titleFontSize}px "Malgun Gothic"`;
+  ctx.font=titleFontSpec;
+  const titleWidth=ctx.measureText(TITLE).width;
+  const logoW=logoH*(img.width/img.height);
+  const gap=22;
+  const contentW=logoW+gap+titleWidth;
+  const logoX=(W-contentW)/2, textX=logoX+logoW+gap;
+
+  const row1Y=95;
+  ctx.drawImage(img, logoX, row1Y-logoH/2, logoW, logoH);
+  ctx.fillStyle='#1a3a6b';
+  ctx.font=titleFontSpec;
+  ctx.textAlign='left';
+  ctx.textBaseline='middle';
+  ctx.fillText(TITLE, textX, row1Y);
+
+  // 배차차량 정보 — 굵고 크게, 강조색으로 확실히 눈에 띄게 표시.
+  ctx.fillStyle='#dc2626';
+  ctx.font=`bold ${vehFontSize}px "Malgun Gothic"`;
+  ctx.textAlign='center';
+  ctx.fillText(vehicleText, W/2, row1Y+logoH/2+40);
+
+  ctx.fillStyle='#374151';
+  ctx.font=`${subFontSize}px "Malgun Gothic"`;
+  ctx.textAlign='center';
+  ctx.fillText(SUB, W/2, H-24);
+
+  ctx.strokeStyle='#1a3a6b';
+  ctx.lineWidth=8;
+  ctx.strokeRect(8, 8, W-16, H-16);
+
+  const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+  return {blob, width:W, height:H};
+}
 const DISPATCH_BANNER_URL='https://raw.githack.com/ddddd6002-design/pub/main/assets/dispatch-banner-v12.png';
 const DISPATCH_BANNER_W=573, DISPATCH_BANNER_H=285;
-async function sendKakaoMessage(description, vehicle){
+async function sendKakaoMessage(vehicleText, vehicle){
   const token=await getKakaoAccessToken();
   if(!token){
     setStatus('⚠ 카카오톡이 연동되어 있지 않아 메시지를 보내지 못했습니다. (설정에서 연동해주세요)', '#b45309');
     return false;
   }
   const url = vehicle ? `${DRIVER_PAGE_URL}?vehicle=${encodeURIComponent(vehicle)}` : DRIVER_PAGE_URL;
+  let imageUrl=DISPATCH_BANNER_URL, imgW=DISPATCH_BANNER_W, imgH=DISPATCH_BANNER_H;
+  try{
+    const {blob, width, height}=await buildDispatchBanner(vehicleText);
+    imageUrl=await pushImageToGithub(`assets/dispatch-msg-${Date.now()}.png`, blob);
+    imgW=width; imgH=height;
+  }catch(e){
+    console.warn('[카카오배너] 배차정보 포함 배너 생성 실패, 기본 배너로 대체:', e.message);
+  }
   const template={
     object_type:'feed',
     content:{
-      // 카카오 피드템플릿은 title을 굵고 큰 글씨로, description은 작은 보통 글씨로 렌더링한다.
-      // "배차차량 정보"를 굵고 크게 보이게 하려면 description이 아니라 title에 넣어야 한다.
-      title:description,
+      title:'',
       description:'',
-      image_url: DISPATCH_BANNER_URL,
-      image_width: DISPATCH_BANNER_W,
-      image_height: DISPATCH_BANNER_H,
+      image_url: imageUrl,
+      image_width: imgW,
+      image_height: imgH,
       link:{web_url:url, mobile_web_url:url}
     },
     buttons:[{title:'물차기사 페이지 열기', link:{web_url:url, mobile_web_url:url}}]
