@@ -256,8 +256,8 @@ async function getKakaoAccessToken(){
 // CDN 엣지 캐시 때문에 갱신이 계속 지연되어, 캐시를 적극적으로 하지 않는 raw.githack.com으로 변경.
 // 카카오는 image_url을 한 번 받아오면 내용이 바뀌어도 자체 캐시를 계속 재사용하므로,
 // 배너를 수정할 때마다 파일명을 새로 만들어야 한다(쿼리스트링만 바꾸는 건 소용없었음).
-const DISPATCH_BANNER_URL='https://raw.githack.com/ddddd6002-design/pub/main/assets/dispatch-banner-v6.png';
-const DISPATCH_BANNER_W=573, DISPATCH_BANNER_H=110;
+const DISPATCH_BANNER_URL='https://raw.githack.com/ddddd6002-design/pub/main/assets/dispatch-banner-v7.png';
+const DISPATCH_BANNER_W=573, DISPATCH_BANNER_H=240;
 async function sendKakaoMessage(description, vehicle){
   const token=await getKakaoAccessToken();
   if(!token){
