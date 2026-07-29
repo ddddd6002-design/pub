@@ -57,6 +57,7 @@
       <button class="btn-step" id="btnArriveTo" onclick="doStep('급수도착')">3. 급수지점 도착</button>
       <button class="btn-step" id="btnDoneTo" onclick="doStep('급수완료')">4. 급수완료</button>
     </div>
+    <div id="locStatus" style="font-size:12px;color:#6b7280;text-align:center;margin-bottom:8px"></div>
     <button class="btn-gray" onclick="logout()">로그아웃</button>
   </div>
 
@@ -98,12 +99,12 @@ async function getFileWithSha(filePath){
   const j=await res.json();
   return {data: j.content?b64ToUtf8(j.content):null, sha:j.sha};
 }
-async function updateJsonFileWithRetry(filePath, mutatorFn, commitMsg){
+async function updateJsonFileWithRetry(filePath, mutatorFn, commitMsg, defaultValue){
   let token=getToken();
   if(!token){ token=setToken(); if(!token) throw new Error('토큰이 필요합니다.'); }
   for(let attempt=0; attempt<5; attempt++){
     const {data:text, sha}=await getFileWithSha(filePath);
-    const current=text?JSON.parse(text):[];
+    const current=text?JSON.parse(text):(defaultValue!==undefined?JSON.parse(JSON.stringify(defaultValue)):[]);
     const updated=mutatorFn(current);
     const headers={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json','Content-Type':'application/json'};
     const body={message: commitMsg||('update '+filePath), content: utf8ToB64(JSON.stringify(updated,null,2))};
@@ -173,6 +174,41 @@ function selectAssignment({row, slot, idx}){
   document.getElementById('pickCard').classList.add('hidden');
   document.getElementById('mainCard').classList.remove('hidden');
   renderMain();
+  startLocationSharing();
+}
+
+// ── 위치공유 (관리자 지도에 현재위치 표시용) ──
+const LOCATION_FILE='vehicle_locations.json';
+let _locWatchId=null, _lastLocPush=0;
+function startLocationSharing(){
+  if(!navigator.geolocation){ setLocStatus('이 브라우저는 위치공유를 지원하지 않습니다.', '#dc2626'); return; }
+  if(_locWatchId!=null) return;
+  setLocStatus('📍 위치공유 준비 중...', '#6b7280');
+  _locWatchId=navigator.geolocation.watchPosition(
+    pos=>{
+      setLocStatus('📍 위치공유 중', '#16a34a');
+      const now=Date.now();
+      if(now-_lastLocPush < 25000) return; // GitHub 쓰기 횟수 제한을 위해 최소 25초 간격으로만 반영
+      _lastLocPush=now;
+      pushLocation(pos.coords.latitude, pos.coords.longitude);
+    },
+    err=>{ setLocStatus('⚠ 위치공유 실패: '+err.message, '#dc2626'); },
+    {enableHighAccuracy:true, maximumAge:15000, timeout:20000}
+  );
+}
+function stopLocationSharing(){
+  if(_locWatchId!=null){ navigator.geolocation.clearWatch(_locWatchId); _locWatchId=null; }
+}
+function setLocStatus(msg,color){ const el=document.getElementById('locStatus'); if(el){ el.textContent=msg; el.style.color=color||'#6b7280'; } }
+async function pushLocation(lat,lng){
+  const vehicle=CURRENT.slot && CURRENT.slot.차량번호;
+  if(!vehicle) return;
+  try{
+    await updateJsonFileWithRetry(LOCATION_FILE, (cur)=>{
+      cur[vehicle]={lat:+lat.toFixed(6), lng:+lng.toFixed(6), updatedAt:Date.now()};
+      return cur;
+    }, '위치 갱신: '+vehicle, {});
+  }catch(e){ console.warn('[위치공유] 업로드 실패:', e.message); }
 }
 function renderMain(){
   const {row, slot}=CURRENT;
@@ -225,6 +261,7 @@ async function doStep(nextStage){
   }
 }
 function logout(){
+  stopLocationSharing();
   localStorage.removeItem('wt_driver_vehicle');
   CURRENT={reqId:null, slotIdx:null, row:null, slot:null};
   document.getElementById('mainCard').classList.add('hidden');
